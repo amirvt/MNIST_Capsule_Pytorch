@@ -1,13 +1,14 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-import numpy as np
 from torchvision import datasets, transforms
 from tqdm import tqdm
 
 BATCH_SIZE = 128
 device = torch.device('cuda')
 NUM_EPOCHS = 10
+torch.manual_seed(1)
+
 
 class MinMaxNormalize(object):
 
@@ -18,18 +19,16 @@ class MinMaxNormalize(object):
         return (tensor - tensor.min()) / (tensor.max() - tensor.min())
 
 
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    MinMaxNormalize()
+])
 train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('./data', train=True, download=True,
-                   transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       MinMaxNormalize()
-                   ])),
+    datasets.MNIST('../data', train=True, download=True,
+                   transform=transform),
     batch_size=BATCH_SIZE, shuffle=True)
 test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('./data', train=False, transform=transforms.Compose([
-        transforms.ToTensor(),
-        MinMaxNormalize()
-    ])),
+    datasets.MNIST('../data', train=False, transform=transform),
     batch_size=BATCH_SIZE, shuffle=True)
 
 
@@ -44,10 +43,10 @@ class ConvLayer(nn.Module):
 
 
 class PrimaryCaps(nn.Module):
-    def __init__(self, dim, **kwargs):
+    def __init__(self, num_capsules, **kwargs):
         super().__init__()
         self.convs = nn.ModuleList([
-            nn.Conv2d(**kwargs) for _ in range(dim)
+            nn.Conv2d(**kwargs) for _ in range(num_capsules)
         ])
 
     def forward(self, xx):
@@ -85,7 +84,7 @@ class DigitCaps(nn.Module):
         u_hat = torch.einsum('bri,rico->brco', [x, self.W])
         b = torch.zeros(*u_hat.shape[:-1], device=device)  # brc
         for i in range(3):
-            c = F.softmax(b, -1)
+            c = F.softmax(b, -2)
             s = torch.einsum('brc,brco->bco', [c, u_hat])
             v = squash(s)
             if i != 2:
@@ -138,7 +137,6 @@ model = CapsNet().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 reconstruction_criterion = nn.MSELoss(reduction='sum')
 
-
 for i_epoch in range(1, NUM_EPOCHS):
     model.train()
     pbar = tqdm(train_loader)
@@ -166,7 +164,7 @@ for i_epoch in range(1, NUM_EPOCHS):
         total += target.shape[0]
 
         pbar.set_description(
-            '[ TRAIN: {:02d} / {:02d} ][ LSS: {:.3f} ACC: {:.3f} ]'.format(i_epoch, NUM_EPOCHS, loss_total / total,
+            '[ TRN ][ {:02d} / {:02d} ][ LSS: {:.3f} ACC: {:.3f} ]'.format(i_epoch, NUM_EPOCHS, loss_total / total,
                                                                            acc_total / total))
 
     model.eval()
@@ -191,5 +189,5 @@ for i_epoch in range(1, NUM_EPOCHS):
         total += target.shape[0]
 
         pbar.set_description(
-            '[ TRAIN: {:02d} / {:02d} ][ LSS: {:.3f} ACC: {:.3f} ]'.format(i_epoch, NUM_EPOCHS, loss_total / total,
+            '[ TST ][ {:02d} / {:02d} ][ LSS: {:.3f} ACC: {:.3f} ]'.format(i_epoch, NUM_EPOCHS, loss_total / total,
                                                                            acc_total / total))
